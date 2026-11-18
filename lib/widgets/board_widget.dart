@@ -1,71 +1,80 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart'; // Teclas del teclado
-
-import '../game/juego_2048.dart'; // Direccion
+import 'package:flutter/services.dart'; // Teclado
+import '../game/juego_2048.dart';
 import '../theme/app_theme.dart';
 import 'tile_widget.dart';
 
-class BoardWidget extends StatefulWidget { // El tablero 4x4 + los gestos
-  final List<int> valores; // Las 16 fichas
-  final void Function(Direccion) onMover; // Avisa a la pantalla de hacia dónde mover
-  const BoardWidget({super.key, required this.valores, required this.onMover});
+class BoardWidget extends StatefulWidget { // Tablero 4x4 + gestos + animaciones
+  final List<Ficha> fichas;
+  final void Function(Direccion) onMover; // Avisa a la pantalla
+  const BoardWidget({super.key, required this.fichas, required this.onMover});
 
   @override
   State<BoardWidget> createState() => _BoardWidgetState();
 }
 
-class _BoardWidgetState extends State<BoardWidget> { // Stateful: necesita recordar cuánto se ha arrastrado
-  Offset _arrastre = Offset.zero; // Distancia recorrida por el dedo
+class _BoardWidgetState extends State<BoardWidget> {
+  Offset _arrastre = Offset.zero; // Cuánto se ha movido el dedo
 
   void _alSoltar() { // Al levantar el dedo decidimos la dirección
     final d = _arrastre;
     _arrastre = Offset.zero;
-    if (d.distance < 30) return; // UMBRAL: ignora deslizamientos muy cortos
-    if (d.dx.abs() > d.dy.abs()) { // Dirección dominante: horizontal
-      widget.onMover(d.dx > 0 ? Direccion.derecha : Direccion.izquierda);
-    } else { // Dirección dominante: vertical
-      widget.onMover(d.dy > 0 ? Direccion.abajo : Direccion.arriba);
+    if (d.distance < 30) return; // UMBRAL: ignora movimientos cortos
+    if (d.dx.abs() > d.dy.abs()) {
+      widget.onMover(d.dx > 0 ? Direccion.derecha : Direccion.izquierda); // Horizontal
+    } else {
+      widget.onMover(d.dy > 0 ? Direccion.abajo : Direccion.arriba); // Vertical
     }
   }
 
-  KeyEventResult _alPulsarTecla(FocusNode nodo, KeyEvent e) { // Flechas del teclado (alternativa accesible)
+  KeyEventResult _tecla(FocusNode nodo, KeyEvent e) { // Flechas del teclado
     if (e is! KeyDownEvent) return KeyEventResult.ignored;
-    final teclas = {
+    final dir = {
       LogicalKeyboardKey.arrowUp: Direccion.arriba,
       LogicalKeyboardKey.arrowDown: Direccion.abajo,
       LogicalKeyboardKey.arrowLeft: Direccion.izquierda,
       LogicalKeyboardKey.arrowRight: Direccion.derecha,
-    };
-    final dir = teclas[e.logicalKey];
-    if (dir == null) return KeyEventResult.ignored; // Otra tecla
+    }[e.logicalKey];
+    if (dir == null) return KeyEventResult.ignored;
     widget.onMover(dir);
     return KeyEventResult.handled;
   }
 
   @override
   Widget build(BuildContext context) {
-    return Focus( // Para recibir el teclado
+    return Focus(
       autofocus: true,
-      onKeyEvent: _alPulsarTecla,
-      child: GestureDetector( // onPan* = movimiento libre en 2D; así elegimos nosotros el eje dominante
+      onKeyEvent: _tecla,
+      child: GestureDetector( // onPan: movimiento en 2D, elegimos nosotros el eje dominante
         onPanStart: (_) => _arrastre = Offset.zero,
-        onPanUpdate: (d) => _arrastre += d.delta, // Vamos sumando el movimiento
+        onPanUpdate: (d) => _arrastre += d.delta,
         onPanEnd: (_) => _alSoltar(),
-        child: AspectRatio( // Siempre cuadrado
-          aspectRatio: 1,
+        child: AspectRatio(
+          aspectRatio: 1, // Cuadrado
           child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppTheme.colorTablero(context),
-              borderRadius: BorderRadius.circular(AppTheme.radio),
-            ),
-            child: GridView.count( // Cuadrícula de 4 columnas
-              crossAxisCount: 4,
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
-              physics: const NeverScrollableScrollPhysics(), // Que no haga scroll
-              children: [for (final v in widget.valores) TileWidget(valor: v)],
-            ),
+            decoration: BoxDecoration(color: AppTheme.colorTablero(context), borderRadius: BorderRadius.circular(AppTheme.radio)),
+            child: LayoutBuilder(builder: (context, c) {
+              const sep = AppTheme.separacion;
+              final celda = (c.maxWidth - sep * 5) / 4; // Tamaño de cada casilla
+              double x(int pos) => sep + (pos % 4) * (celda + sep); // Columna -> píxeles
+              double y(int pos) => sep + (pos ~/ 4) * (celda + sep); // Fila -> píxeles
+              final orden = [...widget.fichas.where((f) => f.eliminada), ...widget.fichas.where((f) => !f.eliminada)]; // Las que desaparecen, debajo
+              return Stack(children: [
+                for (var p = 0; p < 16; p++) // Casillas vacías de fondo
+                  Positioned(left: x(p), top: y(p), width: celda, height: celda, child: const TileWidget(valor: 0)),
+                for (final f in orden)
+                  AnimatedPositioned( // ANIMACIÓN de movimiento: se desliza a su nueva casilla
+                    key: ValueKey(f.id),
+                    duration: AppTheme.animacion,
+                    curve: Curves.easeInOut,
+                    left: x(f.pos),
+                    top: y(f.pos),
+                    width: celda,
+                    height: celda,
+                    child: TileWidget(valor: f.valor, nueva: f.nueva, fusionada: f.fusionada),
+                  ),
+              ]);
+            }),
           ),
         ),
       ),

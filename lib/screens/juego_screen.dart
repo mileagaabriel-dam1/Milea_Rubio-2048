@@ -110,7 +110,7 @@ class _JuegoScreenState extends State<JuegoScreen> with WidgetsBindingObserver {
             ]),
           ),
           if (_verDetalles) Text('Movimientos: ${_juego.movimientos}   Tiempo: ${formatoTiempo(_segundos)}'),
-          Expanded(child: Center(child: BoardWidget(valores: _juego.tablero, onMover: _mover))),
+          Expanded(child: Center(child: BoardWidget(fichas: _juego.fichas, onMover: _mover))),
         ]),
       ),
     );

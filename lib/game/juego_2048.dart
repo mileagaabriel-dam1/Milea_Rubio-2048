@@ -1,66 +1,96 @@
-import 'dart:math'; // Random
+import 'dart:math'; // Random, max
 
-enum Direccion { arriba, abajo, izquierda, derecha } // Las 4 direcciones posibles
+enum Direccion { arriba, abajo, izquierda, derecha } // Las 4 direcciones
+
+class Ficha { // Una ficha con identidad propia (así podemos animar su movimiento)
+  final int id; // Identificador único
+  int valor; // 2, 4, 8...
+  int pos; // Casilla donde está (0-15)
+  bool nueva = true; // Acaba de aparecer -> animación de aparecer
+  bool fusionada = false; // Acaba de fusionarse -> animación "pop"
+  bool eliminada = false; // Se ha juntado con otra: se desliza y desaparece
+  Ficha(this.id, this.valor, this.pos);
+}
 
 class Juego2048 { // Lógica del juego (sin nada de pantalla)
-  List<int> tablero = List.filled(16, 0); // 16 casillas, 0 = vacía
-  int puntuacion = 0; // Puntos
-  int movimientos = 0; // Movimientos válidos hechos
-  final _random = Random(); // Para elegir casilla y valor al azar
+  static int _siguienteId = 0; // static: ids únicos aunque se reinicie la partida
+  final fichas = <Ficha>[]; // Fichas del tablero
+  int puntuacion = 0;
+  int movimientos = 0;
+  final _random = Random();
 
-  Juego2048() { // Partida nueva
-    _nuevaFicha(); // Empieza con
-    _nuevaFicha(); // dos fichas
+  Juego2048() { // Partida nueva: 2 fichas
+    _nuevaFicha();
+    _nuevaFicha();
   }
 
-  Juego2048.cargar(this.tablero, this.puntuacion, this.movimientos); // Partida guardada
-
-  int get fichaMaxima => tablero.reduce(max); // La ficha más alta del tablero
-
-  void _nuevaFicha() { // Pone un 2 (90%) o un 4 (10%) en una casilla vacía
-    final vacias = [for (var i = 0; i < 16; i++) if (tablero[i] == 0) i]; // Posiciones libres
-    if (vacias.isEmpty) return; // Tablero lleno
-    tablero[vacias[_random.nextInt(vacias.length)]] = _random.nextInt(10) == 0 ? 4 : 2;
+  Juego2048.cargar(List<int> tablero, this.puntuacion, this.movimientos) { // Partida guardada
+    for (var i = 0; i < 16; i++) {
+      if (tablero[i] != 0) fichas.add(Ficha(_siguienteId++, tablero[i], i));
+    }
   }
 
-  List<int> _linea(int n, Direccion d) { // Las 4 posiciones de una fila/columna, en el orden del movimiento
+  List<int> get tablero { // Las 16 casillas como números (para guardar en la BD)
+    final t = List.filled(16, 0);
+    for (final f in fichas) {
+      if (!f.eliminada) t[f.pos] = f.valor;
+    }
+    return t;
+  }
+
+  int get fichaMaxima => tablero.reduce(max); // Ficha más alta
+
+  void _nuevaFicha() { // Un 2 (90%) o un 4 (10%) en una casilla vacía
+    final t = tablero;
+    final vacias = [for (var i = 0; i < 16; i++) if (t[i] == 0) i];
+    if (vacias.isEmpty) return;
+    fichas.add(Ficha(_siguienteId++, _random.nextInt(10) == 0 ? 4 : 2, vacias[_random.nextInt(vacias.length)]));
+  }
+
+  List<int> _linea(int n, Direccion d) { // Las 4 casillas de una fila/columna, en el orden del movimiento
     switch (d) {
-      case Direccion.izquierda: return [n * 4, n * 4 + 1, n * 4 + 2, n * 4 + 3]; // Fila n, de izq a der
-      case Direccion.derecha: return [n * 4 + 3, n * 4 + 2, n * 4 + 1, n * 4]; // Fila n, de der a izq
-      case Direccion.arriba: return [n, n + 4, n + 8, n + 12]; // Columna n, de arriba a abajo
-      case Direccion.abajo: return [n + 12, n + 8, n + 4, n]; // Columna n, de abajo a arriba
+      case Direccion.izquierda: return [n * 4, n * 4 + 1, n * 4 + 2, n * 4 + 3];
+      case Direccion.derecha: return [n * 4 + 3, n * 4 + 2, n * 4 + 1, n * 4];
+      case Direccion.arriba: return [n, n + 4, n + 8, n + 12];
+      case Direccion.abajo: return [n + 12, n + 8, n + 4, n];
     }
   }
 
-  bool mover(Direccion d) { // Mueve las fichas. Devuelve true si algo ha cambiado
-    final antes = List.of(tablero); // Copia para saber si cambió
-    for (var n = 0; n < 4; n++) { // Para cada fila o columna
-      final pos = _linea(n, d); // Sus 4 posiciones
-      final valores = [for (final p in pos) if (tablero[p] != 0) tablero[p]]; // Fichas sin huecos
-      final resultado = <int>[]; // La línea ya movida
-      for (var i = 0; i < valores.length; i++) {
-        if (i + 1 < valores.length && valores[i] == valores[i + 1]) { // Dos iguales seguidas
-          resultado.add(valores[i] * 2); // Se fusionan
-          puntuacion += valores[i] * 2; // Y suman puntos
-          i++; // Saltamos la segunda
-        } else {
-          resultado.add(valores[i]); // Se queda igual
+  bool mover(Direccion d) { // Devuelve true si algo ha cambiado
+    fichas.removeWhere((f) => f.eliminada); // Quitamos las que desaparecieron en el movimiento anterior
+    for (final f in fichas) { f.nueva = false; f.fusionada = false; } // Reseteamos las animaciones
+    final antes = tablero.join(',');
+    for (var n = 0; n < 4; n++) { // Cada fila o columna
+      final pos = _linea(n, d);
+      final enLinea = [for (final p in pos) ...fichas.where((f) => f.pos == p)]; // Sus fichas, en orden
+      var destino = 0; // Siguiente casilla libre
+      for (var i = 0; i < enLinea.length; i++) {
+        final f = enLinea[i];
+        f.pos = pos[destino]; // La ficha se desliza hasta aquí
+        if (i + 1 < enLinea.length && enLinea[i + 1].valor == f.valor) { // Dos iguales seguidas
+          final otra = enLinea[i + 1];
+          otra.pos = pos[destino]; // La otra va a la misma casilla...
+          otra.eliminada = true; // ...y desaparece
+          f.valor *= 2; // Esta se queda con el doble
+          f.fusionada = true; // -> animación pop
+          puntuacion += f.valor;
+          i++; // Saltamos la otra
         }
+        destino++;
       }
-      while (resultado.length < 4) { resultado.add(0); } // Rellenamos con huecos
-      for (var i = 0; i < 4; i++) { tablero[pos[i]] = resultado[i]; } // Escribimos en el tablero
     }
-    final cambiado = antes.join() != tablero.join(); // ¿Ha cambiado algo?
-    if (cambiado) { movimientos++; _nuevaFicha(); } // Si sí: cuenta el movimiento y sale ficha nueva
+    final cambiado = antes != tablero.join(','); // ¿Ha cambiado algo?
+    if (cambiado) { movimientos++; _nuevaFicha(); }
     return cambiado;
   }
 
-  bool get terminado { // Fin de partida: no quedan huecos ni fusiones posibles
-    if (tablero.contains(0)) return false; // Hay hueco = se puede mover
+  bool get terminado { // No hay huecos ni fusiones posibles
+    final t = tablero;
+    if (t.contains(0)) return false;
     for (var i = 0; i < 16; i++) {
-      if (i % 4 < 3 && tablero[i] == tablero[i + 1]) return false; // Igual a la derecha
-      if (i < 12 && tablero[i] == tablero[i + 4]) return false; // Igual abajo
+      if (i % 4 < 3 && t[i] == t[i + 1]) return false; // Igual a la derecha
+      if (i < 12 && t[i] == t[i + 4]) return false; // Igual abajo
     }
-    return true; // No hay movimientos
+    return true;
   }
 }
