@@ -1,25 +1,31 @@
-class Usuario { // Una fila de la tabla usuarios
-  final int? id; // null hasta que se inserta
-  final String usuario; // Nombre
-  final String email; // Email
-  final String contrasena; // Contraseña YA encriptada (hash)
-  final String fechaRegistro; // Fecha en texto ISO 8601
+import 'package:sqflite/sqflite.dart'; // Para usar la BD
 
-  Usuario({this.id, required this.usuario, required this.email, required this.contrasena, required this.fechaRegistro});
+import '../models/usuario.dart'; // Modelo Usuario
+import '../utils.dart'; // encriptar()
+import 'database_helper.dart'; // Para abrir la BD
 
-  Map<String, Object?> toMap() => { // Objeto -> BD (guardar)
-    'id': id,
-    'usuario': usuario,
-    'email': email,
-    'contrasena': contrasena,
-    'fecha_registro': fechaRegistro,
-  };
+class UsuarioDao { // SQL de la tabla usuarios
+  Future<Database> get _db => DatabaseHelper.instance.database; // Atajo para la BD
 
-  factory Usuario.fromMap(Map<String, Object?> m) => Usuario( // BD -> objeto (leer)
-    id: m['id'] as int,
-    usuario: m['usuario'] as String,
-    email: m['email'] as String,
-    contrasena: m['contrasena'] as String,
-    fechaRegistro: m['fecha_registro'] as String,
-  );
+  Future<Usuario> registrar(String usuario, String email, String contrasena) async { // INSERT
+    final db = await _db; // BD
+    final nuevo = Usuario(
+      usuario: usuario.trim(),
+      email: email.trim(),
+      contrasena: encriptar(contrasena), // Se guarda encriptada
+      fechaRegistro: DateTime.now().toIso8601String(), // Fecha ISO 8601
+    );
+    final id = await db.insert('usuarios', nuevo.toMap()); // Si el usuario/email ya existe, lanza error (UNIQUE)
+    return Usuario(id: id, usuario: nuevo.usuario, email: nuevo.email, contrasena: nuevo.contrasena, fechaRegistro: nuevo.fechaRegistro);
+  }
+
+  Future<Usuario?> login(String usuario, String contrasena) async { // SELECT
+    final db = await _db; // BD
+    final filas = await db.query(
+      'usuarios',
+      where: 'usuario = ? AND contrasena = ?', // ? = parámetros (nunca concatenar)
+      whereArgs: [usuario.trim(), encriptar(contrasena)], // Comparamos con la contraseña encriptada
+    );
+    return filas.isEmpty ? null : Usuario.fromMap(filas.first); // null = datos incorrectos
+  }
 }

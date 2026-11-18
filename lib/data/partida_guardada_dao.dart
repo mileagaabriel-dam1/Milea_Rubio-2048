@@ -1,28 +1,25 @@
-import 'dart:convert'; // jsonEncode / jsonDecode
+import 'package:sqflite/sqflite.dart'; // Para usar la BD
 
-class PartidaGuardada { // La partida en curso (siempre id = 1)
-  final int usuarioId; // De quién es
-  final List<int> tablero; // 16 casillas (0 = vacía)
-  final int puntuacion; // Puntos
-  final int movimientos; // Movimientos
-  final int segundos; // Tiempo jugado
+import '../models/partida_guardada.dart'; // Modelo PartidaGuardada
+import 'database_helper.dart'; // Para abrir la BD
 
-  PartidaGuardada({required this.usuarioId, required this.tablero, required this.puntuacion, required this.movimientos, required this.segundos});
+class PartidaGuardadaDao { // SQL de la partida en curso
+  Future<Database> get _db => DatabaseHelper.instance.database; // Atajo para la BD
 
-  Map<String, Object?> toMap() => { // Objeto -> BD
-    'id': 1, // Siempre 1: solo hay una partida guardada
-    'usuario_id': usuarioId,
-    'tablero': jsonEncode(tablero), // Lista -> texto "[2,0,4,...]"
-    'puntuacion': puntuacion,
-    'movimientos': movimientos,
-    'segundos_transcurridos': segundos,
-  };
+  Future<void> guardar(PartidaGuardada p) async { // Guardar
+    final db = await _db; // BD
+    await db.insert('partida_guardada', p.toMap(), // INSERT...
+        conflictAlgorithm: ConflictAlgorithm.replace); // ...y si ya existe, la reemplaza
+  }
 
-  factory PartidaGuardada.fromMap(Map<String, Object?> m) => PartidaGuardada( // BD -> objeto
-    usuarioId: m['usuario_id'] as int,
-    tablero: List<int>.from(jsonDecode(m['tablero'] as String)), // Texto -> lista
-    puntuacion: m['puntuacion'] as int,
-    movimientos: m['movimientos'] as int,
-    segundos: m['segundos_transcurridos'] as int,
-  );
+  Future<PartidaGuardada?> obtener(int usuarioId) async { // Recuperar
+    final db = await _db; // BD
+    final filas = await db.query('partida_guardada', where: 'usuario_id = ?', whereArgs: [usuarioId]);
+    return filas.isEmpty ? null : PartidaGuardada.fromMap(filas.first); // null = no hay
+  }
+
+  Future<void> borrar() async { // Borrar
+    final db = await _db; // BD
+    await db.delete('partida_guardada'); // Solo hay una fila
+  }
 }
